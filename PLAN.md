@@ -15,10 +15,11 @@
 | 9 | Charts (Recharts) | ✅ Listo | TimeSeriesChart.tsx |
 | 10 | Alertas + Telegram | ✅ Listo | alerts.ts + /api/alerts |
 | 11 | Settings API | ✅ Listo | /api/settings GET/PUT |
-| 12 | Migración datos localhost → Neon | ✅ Listo | scripts/migrate-data.ts |
+| 12 | Migración datos localhost → Neon | ⚠️ Parcial | 353K/3.5M rows migrados (4 days). Resta pendiente. |
 | 13 | Scripts de testing | ✅ Listo | test-db, test-capture, test-alerts |
-| 14 | Git repo + Vercel deploy | ✅ Listo | Git init + commit hecho. Deploy: `vercel link && vercel --prod` |
-| 15 | jpcode.cl link + cron-job.org | 🔄 Pendiente | Necesita deploy primero |
+| 14 | Git repo + Vercel deploy | ✅ Listo | https://solar.jpcode.cl — deploy automático via GitHub |
+| 15 | jpcode.cl link | ✅ Listo | SOLAR_URL=https://solar.jpcode.cl en jpcode-home |
+| 16 | cron-job.org (capture + alerts) | 🔄 Pendiente | 2 jobs: GET /api/capture + GET /api/alerts, cada 1 min |
 
 ## Arquitectura
 
