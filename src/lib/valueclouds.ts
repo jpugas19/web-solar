@@ -240,9 +240,9 @@ export function flattenFlow(data: EnergyFlowData): FlatReading[] {
     bc_status: data.bc_status || [],
   };
 
-  for (const [group, items] of Object.entries(groups)) {
+  for (const [, items] of Object.entries(groups)) {
     for (const item of items) {
-      const fieldId = `${group}.${item.par}`;
+      const fieldId = item.par;
       const numVal = parseFloat(item.val);
       const isNumeric = !isNaN(numVal) && item.val !== "";
       rows.push({

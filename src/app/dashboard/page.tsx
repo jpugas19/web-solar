@@ -44,8 +44,8 @@ function formatEnergy(kwh: number | null): string {
 }
 
 function getLoadSource(data: LatestData[]): string {
-  const pv = getVal(data, "pv_output_power") || 0;
-  const bat = getVal(data, "battery_active_discharging_power") || 0;
+  const pv = Math.abs(getVal(data, "pv_output_power") || 0);
+  const bat = Math.abs(getVal(data, "battery_active_discharging_power") || 0);
   const grid = Math.abs(getVal(data, "grid_active_power") || 0) * 1000;
 
   if (pv > 20) return "SOLAR";
