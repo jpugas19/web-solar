@@ -19,7 +19,7 @@
 | 13 | Scripts de testing | ✅ Listo | test-db, test-capture, test-alerts |
 | 14 | Git repo + Vercel deploy | ✅ Listo | https://solar.jpcode.cl — deploy automático via GitHub |
 | 15 | jpcode.cl link | ✅ Listo | SOLAR_URL=https://solar.jpcode.cl en jpcode-home |
-| 16 | cron-job.org (capture + alerts) | 🔄 Pendiente | 2 jobs: GET /api/capture + GET /api/alerts, cada 1 min |
+| 16 | cron-job.org (capture + alerts) | ✅ Listo | Jobs #8344560 + #8344563, cada 1 min, America/Santiago |
 
 ## Arquitectura
 
