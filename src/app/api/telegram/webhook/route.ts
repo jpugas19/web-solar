@@ -36,57 +36,59 @@ async function sendMessage(token: string, chatId: number, text: string) {
     body: JSON.stringify({
       chat_id: chatId,
       text,
-      parse_mode: "HTML",
     }),
   });
   return res.ok;
 }
 
 async function buildStatusText(): Promise<string> {
-  const now = new Date();
-  const chileTime = now.toLocaleString("es-CL", {
-    timeZone: "America/Santiago",
-    hour12: false,
-    dateStyle: "short",
-    timeStyle: "short",
-  });
-
-  const status = await getLatest("status", "onedata");
   const soc = await getLatest("bt_battery_capacity", "onedata");
   const batteryVoltage = await getLatest("battery_voltage", "onedata");
   const pv = await getLatest("pv_output_power", "onedata");
   const batteryPower = await getLatest("battery_active_discharging_power", "onedata");
   const load = await getLatest("load_active_power", "onedata");
-  const energyTotal = await getLatest("energy_total", "onedata");
   const grid = await getLatest("grid_active_power", "flow");
 
-  const socVal = soc?.val ?? null;
   const pvW = pv?.val ?? 0;
   const batW = batteryPower?.val ?? 0;
   const gridkW = grid?.val ?? 0;
   const loadW = load?.val ?? 0;
 
-  let loadSource = "SIN FUENTE";
-  if (Math.abs(pvW) > 20) loadSource = "☀️ SOLAR";
-  else if (Math.abs(batW) > 20) loadSource = "🔋 BATERIA";
-  else if (Math.abs(gridkW) * 1000 > 20) loadSource = "🔌 RED";
+  const pvKw = pvW / 1000;
+  const batKw = batW / 1000;
+  const loadKw = loadW / 1000;
+  const gridKw = gridkW;
 
-  const lines = [
-    `<b>⚡ Estado del inversor solar</b>`,
-    `<i>${chileTime}</i>`,
-    ``,
-    `Estado: <b>${status?.val_text || "N/D"}</b>`,
-    `SOC: <b>${socVal !== null ? socVal.toFixed(1) + "%" : "N/D"}</b>`,
-    `Voltaje batería: ${batteryVoltage?.val != null ? batteryVoltage.val.toFixed(1) + " V" : "N/D"}`,
-    `PV: ${Math.abs(pvW).toFixed(0)} W`,
-    `Batería: ${Math.abs(batW).toFixed(0)} W`,
-    `Red: ${Math.abs(gridkW * 1000).toFixed(0)} W`,
-    `Carga: ${Math.abs(loadW).toFixed(0)} W`,
-    `Alimentada por: <b>${loadSource}</b>`,
-    `Energía total: ${energyTotal?.val != null ? energyTotal.val.toFixed(1) + " kWh" : "N/D"}`,
-  ];
+  const vals = [pvKw, batKw, gridKw, loadKw].filter(v => v !== null && v !== undefined);
+  const useKw = vals.some(v => Math.abs(v) >= 1.0);
 
-  return lines.join("\n");
+  const fmt = (v: number | null | undefined) => {
+    if (v === null || v === undefined) return "n/d";
+    if (useKw) return `${v.toFixed(2)} kW`;
+    return `${(v * 1000).toFixed(0)} W`;
+  };
+
+  const batFormatted = fmt(batKw);
+  const batDetail = batKw !== null && batKw !== undefined && Math.abs(batKw) > 0.005
+    ? ` ${batKw > 0 ? "(descarga)" : "(carga)"}`
+    : "";
+
+  const pvSrc = Math.abs(pvW) > 20 ? "SOLAR" :
+    Math.abs(batW) > 20 ? "BATERIA" :
+    Math.abs(gridkW * 1000) > 20 ? "RED" : "SIN FUENTE";
+
+  const socS = soc?.val !== null && soc?.val !== undefined ? `${soc.val.toFixed(0)}%` : "n/d";
+  const voltS = batteryVoltage?.val !== null && batteryVoltage?.val !== undefined
+    ? `${batteryVoltage.val.toFixed(1)} V` : "n/d";
+
+  return (
+    `☀️ Paneles: ${fmt(pvKw)}\n` +
+    `🔋 Batería: ${batFormatted}${batDetail}\n` +
+    `⚡ Red: ${fmt(gridKw)}\n` +
+    `🏠 Carga: ${fmt(loadKw)}\n` +
+    `🔌 Alimentando: ${pvSrc}\n` +
+    `Batería ${socS} ${voltS}`
+  );
 }
 
 export async function POST(request: Request) {
