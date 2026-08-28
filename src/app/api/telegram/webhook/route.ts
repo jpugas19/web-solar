@@ -1,0 +1,132 @@
+import { NextResponse } from "next/server";
+import { sql } from "@/lib/db";
+
+export const runtime = "edge";
+
+interface TelegramUpdate {
+  update_id?: number;
+  message?: {
+    chat?: { id?: number };
+    text?: string;
+    from?: { username?: string; first_name?: string };
+  };
+}
+
+async function getLatest(
+  fieldId: string,
+  source = "onedata"
+): Promise<{ val: number | null; val_text: string | null; unit: string | null } | null> {
+  const rows = await sql`
+    SELECT val, val_text, unit FROM readings
+    WHERE field_id = ${fieldId} AND source = ${source}
+    ORDER BY ts DESC LIMIT 1
+  `;
+  if (rows.length === 0) return { val: null, val_text: null, unit: null };
+  return {
+    val: rows[0].val,
+    val_text: rows[0].val_text,
+    unit: rows[0].unit,
+  };
+}
+
+async function sendMessage(token: string, chatId: number, text: string) {
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      chat_id: chatId,
+      text,
+      parse_mode: "HTML",
+    }),
+  });
+  return res.ok;
+}
+
+async function buildStatusText(): Promise<string> {
+  const now = new Date();
+  const chileTime = now.toLocaleString("es-CL", {
+    timeZone: "America/Santiago",
+    hour12: false,
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+
+  const status = await getLatest("status", "onedata");
+  const soc = await getLatest("bt_battery_capacity", "onedata");
+  const batteryVoltage = await getLatest("battery_voltage", "onedata");
+  const pv = await getLatest("pv_output_power", "onedata");
+  const batteryPower = await getLatest("battery_active_discharging_power", "onedata");
+  const load = await getLatest("load_active_power", "onedata");
+  const energyTotal = await getLatest("energy_total", "onedata");
+  const grid = await getLatest("grid_active_power", "flow");
+
+  const socVal = soc?.val ?? null;
+  const pvW = pv?.val ?? 0;
+  const batW = batteryPower?.val ?? 0;
+  const gridkW = grid?.val ?? 0;
+  const loadW = load?.val ?? 0;
+
+  let loadSource = "SIN FUENTE";
+  if (Math.abs(pvW) > 20) loadSource = "☀️ SOLAR";
+  else if (Math.abs(batW) > 20) loadSource = "🔋 BATERIA";
+  else if (Math.abs(gridkW) * 1000 > 20) loadSource = "🔌 RED";
+
+  const lines = [
+    `<b>⚡ Estado del inversor solar</b>`,
+    `<i>${chileTime}</i>`,
+    ``,
+    `Estado: <b>${status?.val_text || "N/D"}</b>`,
+    `SOC: <b>${socVal !== null ? socVal.toFixed(1) + "%" : "N/D"}</b>`,
+    `Voltaje batería: ${batteryVoltage?.val != null ? batteryVoltage.val.toFixed(1) + " V" : "N/D"}`,
+    `PV: ${Math.abs(pvW).toFixed(0)} W`,
+    `Batería: ${Math.abs(batW).toFixed(0)} W`,
+    `Red: ${Math.abs(gridkW * 1000).toFixed(0)} W`,
+    `Carga: ${Math.abs(loadW).toFixed(0)} W`,
+    `Alimentada por: <b>${loadSource}</b>`,
+    `Energía total: ${energyTotal?.val != null ? energyTotal.val.toFixed(1) + " kWh" : "N/D"}`,
+  ];
+
+  return lines.join("\n");
+}
+
+export async function POST(request: Request) {
+  const token = process.env.TELEGRAM_BOT_TOKEN;
+  if (!token) {
+    return NextResponse.json({ ok: false, error: "Telegram not configured" }, { status: 500 });
+  }
+
+  let update: TelegramUpdate;
+  try {
+    update = await request.json();
+  } catch {
+    return new NextResponse("ok", { status: 200 });
+  }
+
+  const text = (update.message?.text || "").trim().toLowerCase();
+  const chatId = update.message?.chat?.id;
+
+  if (!chatId || !text) {
+    return new NextResponse("ok", { status: 200 });
+  }
+
+  const isStatusCommand =
+    text === "/estado" ||
+    text === "estado" ||
+    text.includes("/estado") ||
+    (text.includes("estado") && !text.includes("alertas"));
+
+  if (isStatusCommand) {
+    try {
+      const statusText = await buildStatusText();
+      await sendMessage(token, chatId, statusText);
+    } catch (err) {
+      console.error("Webhook status error:", err);
+    }
+  }
+
+  return new NextResponse("ok", { status: 200 });
+}
+
+export async function GET() {
+  return NextResponse.json({ ok: true, message: "Telegram webhook endpoint" });
+}
