@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { sql } from "@/lib/db";
 
-export const runtime = "edge";
+export const runtime = "nodejs";
 
 interface TelegramUpdate {
   update_id?: number;
@@ -92,20 +92,25 @@ async function buildStatusText(): Promise<string> {
 export async function POST(request: Request) {
   const token = process.env.TELEGRAM_BOT_TOKEN;
   if (!token) {
+    console.error("webhook: TELEGRAM_BOT_TOKEN no configurado");
     return NextResponse.json({ ok: false, error: "Telegram not configured" }, { status: 500 });
   }
 
   let update: TelegramUpdate;
   try {
     update = await request.json();
-  } catch {
+  } catch (err) {
+    console.error("webhook: JSON parse error:", err);
     return new NextResponse("ok", { status: 200 });
   }
 
   const text = (update.message?.text || "").trim().toLowerCase();
   const chatId = update.message?.chat?.id;
 
+  console.log("webhook: update recibido chatId=", chatId, "text=", JSON.stringify(text));
+
   if (!chatId || !text) {
+    console.log("webhook: sin chatId o texto, se ignora");
     return new NextResponse("ok", { status: 200 });
   }
 
@@ -117,13 +122,19 @@ export async function POST(request: Request) {
 
   if (isStatusCommand) {
     try {
+      console.log("webhook: procesando estado para chat", chatId);
       const statusText = await buildStatusText();
-      await sendMessage(token, chatId, statusText);
+      console.log("webhook: statusText construido, longitud=", statusText.length);
+      const sent = await sendMessage(token, chatId, statusText);
+      console.log("webhook: sendMessage resultado=", sent);
+      return NextResponse.json({ ok: true, sent, chatId });
     } catch (err) {
-      console.error("Webhook status error:", err);
+      console.error("webhook: error al procesar/send:", err);
+      return NextResponse.json({ ok: false, error: String(err) }, { status: 200 });
     }
   }
 
+  console.log("webhook: texto no reconocido como comando");
   return new NextResponse("ok", { status: 200 });
 }
 
