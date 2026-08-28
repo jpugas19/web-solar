@@ -87,18 +87,16 @@ export class ValueCloudsClient {
 
     for (let attempt = 0; attempt < retries; attempt++) {
       try {
-        const body = new URLSearchParams({
-          account: this.account,
-          password: sha1pass,
-          project: "IOT",
-        });
-
         const res = await fetch(
           `${API_ROOT}/ppr/web/login/login`,
           {
             method: "POST",
-            headers: { "Content-Type": "application/x-www-form-urlencoded" },
-            body: body.toString(),
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              account: this.account,
+              password: sha1pass,
+              project: "IOT",
+            }),
           }
         );
 
