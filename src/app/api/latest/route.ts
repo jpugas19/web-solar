@@ -7,7 +7,7 @@ export async function GET() {
       SELECT DISTINCT ON (field_id)
         ts, source, field_id, title, unit, val, val_text
       FROM readings
-      ORDER BY field_id, ts DESC
+      ORDER BY field_id, (source = 'onedata') DESC, ts DESC
     `;
 
     return NextResponse.json({ data });
