@@ -5,7 +5,7 @@
 | # | Paso | Estado | Notas |
 |---|------|--------|-------|
 | 1 | Setup proyecto Next.js + deps | ✅ Listo | Next.js 16.3.3 + Neon + Recharts + jose + bcryptjs + tsx |
-| 2 | DB schema + seed user en Neon | ⏳ Pendiente | |
+| 2 | DB schema + seed user en Neon | ✅ Listo | scripts/seed-user.ts crea tablas + usuario |
 | 3 | Auth (lib + middleware + login) | ✅ Listo | JWT jose + middleware + API routes |
 | 4 | ValueClouds API client TS | ✅ Listo | valueclouds.ts + flatten functions |
 | 5 | API capture (Edge Function) | ✅ Listo | /api/capture, runtime=edge |
@@ -17,8 +17,8 @@
 | 11 | Settings API | ✅ Listo | /api/settings GET/PUT |
 | 12 | Migración datos localhost → Neon | ✅ Listo | scripts/migrate-data.ts |
 | 13 | Scripts de testing | ✅ Listo | test-db, test-capture, test-alerts |
-| 14 | Git repo + Vercel deploy | ⏳ Pendiente | |
-| 15 | jpcode.cl link + cron-job.org | ⏳ Pendiente | |
+| 14 | Git repo + Vercel deploy | ✅ Listo | Git init + commit hecho. Deploy: `vercel link && vercel --prod` |
+| 15 | jpcode.cl link + cron-job.org | 🔄 Pendiente | Necesita deploy primero |
 
 ## Arquitectura
 
@@ -157,3 +157,52 @@ CREATE TABLE settings (
 - **Canvas SVG**: Diagrama de flujo con puntos de color dinámico
 - **Charts**: Recharts con auto-refresh 30s
 - **Migración**: pg_dump localhost → INSERT a Neon
+
+## Pasos manuales restantes
+
+### 1. Crear DB en Neon
+1. Ir a console.neon.tech
+2. Seleccionar proyecto existente (el de rowfut/nutriflow)
+3. Create database → nombre: `solar`
+4. Copiar connection string
+
+### 2. Seed usuario + tablas
+```bash
+cd ~/Desarrollos/web-solar
+DATABASE_URL="<neon-connection-string>" npx tsx scripts/seed-user.ts admin@jpcode.cl "solar123"
+```
+
+### 3. Migrar datos históricos
+```bash
+DATABASE_URL_LOCAL="postgresql://postgres:ugas4210@localhost:5432/solar" \
+DATABASE_URL_NEON="<neon-connection-string>" \
+npx tsx scripts/migrate-data.ts
+```
+
+### 4. Deploy a Vercel
+```bash
+cd ~/Desarrollos/web-solar
+gh repo create jpugas19/web-solar --public --source=. --remote=origin --push
+vercel link
+vercel env add DATABASE_URL production
+vercel env add JWT_SECRET production
+vercel env add VALUECLOUDS_ACCOUNT production
+vercel env add VALUECLOUDS_PASSWORD production
+vercel env add DEVICE_PN production
+vercel env add DEVICE_SN production
+vercel env add DEVICE_DEVCODE production
+vercel env add DEVICE_DEVADDR production
+vercel env add TELEGRAM_BOT_TOKEN production
+vercel env add TELEGRAM_CHAT_ID production
+vercel --prod
+vercel domains add solar.jpcode.cl
+```
+
+### 5. Actualizar jpcode.cl
+En Vercel dashboard de jpcode-home:
+- Agregar env var: `SOLAR_URL=https://solar.jpcode.cl`
+
+### 6. Configurar cron-job.org
+1. Crear cuenta gratis en cron-job.org
+2. Job 1: `GET https://solar.jpcode.cl/api/capture`, cada 1 minuto
+3. Job 2: `GET https://solar.jpcode.cl/api/alerts`, cada 1 minuto

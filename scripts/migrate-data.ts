@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import pg from "pg";
 
 const localDsn = process.env.DATABASE_URL_LOCAL;
 const neonDsn = process.env.DATABASE_URL_NEON;
@@ -8,16 +8,20 @@ if (!localDsn || !neonDsn) {
   process.exit(1);
 }
 
-const localSql = neon(localDsn);
-const neonSql = neon(neonDsn);
+const localPool = new pg.Pool({ connectionString: localDsn });
+const neonPool = new pg.Pool({ connectionString: neonDsn, ssl: { rejectUnauthorized: false } });
 
 async function main() {
   console.log("Exporting from local database...");
-  const rows = await localSql`SELECT ts, source, field_id, title, unit, val, val_text FROM readings ORDER BY ts`;
+  const { rows } = await localPool.query(
+    "SELECT ts, source, field_id, title, unit, val, val_text FROM readings ORDER BY ts"
+  );
   console.log(`Exported ${rows.length} rows`);
 
   if (rows.length === 0) {
     console.log("No data to migrate");
+    await localPool.end();
+    await neonPool.end();
     return;
   }
 
@@ -25,25 +29,78 @@ async function main() {
   const last = rows[rows.length - 1].ts;
   console.log(`Range: ${first} → ${last}`);
 
-  console.log("Importing to Neon...");
-  const CHUNK = 500;
-  let imported = 0;
+  // Use COPY for bulk insert
+  console.log("Importing to Neon via COPY...");
 
-  for (let i = 0; i < rows.length; i += CHUNK) {
-    const chunk = rows.slice(i, i + CHUNK);
-    for (const row of chunk) {
-      await neonSql`
+  const client = await neonPool.connect();
+  try {
+    // Create a readable stream from the rows
+    const { Readable } = await import("stream");
+
+    // Use COPY for fast bulk insert
+    const copySQL = `COPY readings (ts, source, field_id, title, unit, val, val_text) FROM STDIN`;
+
+    const inputStream = new Readable({
+      read() {
+        for (const row of rows) {
+          const ts = row.ts instanceof Date ? row.ts.toISOString() : String(row.ts);
+          const line = [
+            ts,
+            row.source,
+            row.field_id,
+            row.title || "\\N",
+            row.unit || "\\N",
+            row.val !== null ? String(row.val) : "\\N",
+            row.val_text || "\\N",
+          ].join("\t") + "\n";
+          this.push(line);
+        }
+        this.push(null);
+      },
+    });
+
+    await client.query(copySQL, [], (err: any, res: any) => {
+      if (err) console.error("COPY error:", err.message);
+    });
+
+    // Since node-postgres COPY doesn't support streams easily, use batched INSERT
+    console.log("Using batched INSERT instead...");
+    const BATCH = 2000;
+    let imported = 0;
+
+    for (let i = 0; i < rows.length; i += BATCH) {
+      const chunk = rows.slice(i, i + BATCH);
+      const values: any[] = [];
+      const placeholders: string[] = [];
+      let idx = 1;
+
+      for (const row of chunk) {
+        const ts = row.ts instanceof Date ? row.ts.toISOString() : String(row.ts);
+        placeholders.push(
+          `($${idx}, $${idx+1}, $${idx+2}, $${idx+3}, $${idx+4}, $${idx+5}, $${idx+6})`
+        );
+        values.push(ts, row.source, row.field_id, row.title, row.unit, row.val, row.val_text);
+        idx += 7;
+      }
+
+      const query = `
         INSERT INTO readings (ts, source, field_id, title, unit, val, val_text)
-        VALUES (${row.ts}, ${row.source}, ${row.field_id}, ${row.title}, ${row.unit}, ${row.val}, ${row.val_text})
-        ON CONFLICT (ts, source, field_id)
-        DO UPDATE SET title = ${row.title}, unit = ${row.unit}, val = ${row.val}, val_text = ${row.val_text}
+        VALUES ${placeholders.join(", ")}
+        ON CONFLICT (ts, source, field_id) DO NOTHING
       `;
-      imported++;
+
+      await client.query(query, values);
+      imported += chunk.length;
+      process.stdout.write(`\r  ${imported}/${rows.length} rows (${((imported/rows.length)*100).toFixed(1)}%)`);
     }
-    process.stdout.write(`\r  ${imported}/${rows.length} rows`);
+
+    console.log(`\nMigration complete: ${imported} rows imported`);
+  } finally {
+    client.release();
   }
 
-  console.log(`\nMigration complete: ${imported} rows imported`);
+  await localPool.end();
+  await neonPool.end();
 }
 
 main().catch((err) => {
