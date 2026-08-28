@@ -4,10 +4,10 @@ import { sql } from "@/lib/db";
 export async function GET() {
   try {
     const data = await sql`
-      SELECT DISTINCT ON (source, field_id)
+      SELECT DISTINCT ON (field_id)
         ts, source, field_id, title, unit, val, val_text
       FROM readings
-      ORDER BY source, field_id, ts DESC
+      ORDER BY field_id, ts DESC
     `;
 
     return NextResponse.json({ data });
