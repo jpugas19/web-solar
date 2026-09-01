@@ -82,6 +82,7 @@ export default function DashboardPage() {
   const router = useRouter();
   const [latest, setLatest] = useState<LatestData[]>([]);
   const [seriesData, setSeriesData] = useState<Record<string, ReadingData[]>>({});
+  const [energyDelta, setEnergyDelta] = useState<{ generated: number | null; bought: number | null }>({ generated: null, bought: null });
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
   const [dateFilter, setDateFilter] = useState<DateFilter>({ mode: "hours", hours: 6 });
@@ -114,6 +115,8 @@ export default function DashboardPage() {
         "bms_battery_temperature",
         "inverter_power",
         "load_active_power",
+        "energy_total",
+        "energy_total_from_grid",
       ];
 
       const seriesPromises = fields.map(async (field) => {
@@ -134,6 +137,21 @@ export default function DashboardPage() {
         newSeries[field] = data;
       }
       setSeriesData(newSeries);
+
+      // Compute energy deltas for the selected period
+      if (dateFilter.mode !== "hours") {
+        const calcDelta = (field: string): number | null => {
+          const pts = newSeries[field]?.filter((p) => p.val !== null) as { val: number }[] | undefined;
+          if (!pts || pts.length < 2) return null;
+          return Math.max(0, pts[pts.length - 1].val - pts[0].val);
+        };
+        setEnergyDelta({
+          generated: calcDelta("energy_total"),
+          bought: calcDelta("energy_total_from_grid"),
+        });
+      } else {
+        setEnergyDelta({ generated: null, bought: null });
+      }
     } catch (err) {
       console.error("Fetch error:", err);
     } finally {
@@ -166,8 +184,11 @@ export default function DashboardPage() {
   const inverterPower = getVal(latest, "inverter_power");
   const gridPower = getVal(latest, "grid_active_power");
   const loadPower = getVal(latest, "load_active_power");
-  const energyTotal = getVal(latest, "energy_total");
-  const energyFromGrid = getVal(latest, "energy_total_from_grid");
+  const showDelta = dateFilter.mode !== "hours" && energyDelta.generated !== null;
+  const energyTotal = showDelta ? energyDelta.generated : getVal(latest, "energy_total");
+  const energyFromGrid = showDelta ? energyDelta.bought : getVal(latest, "energy_total_from_grid");
+  const energyLabel = showDelta ? "Energía en período" : "Energía total generada";
+  const gridLabel = showDelta ? "Comprada red (período)" : "Energía comprada red";
   const loadSource = getLoadSource(latest);
   const statusCode = getStatus(latest);
   const statusText =
@@ -218,12 +239,12 @@ export default function DashboardPage() {
         {/* Stats Row */}
         <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
-            title="Energia total generada"
+            title={energyLabel}
             value={formatEnergy(energyTotal)}
             color="amber"
           />
           <StatCard
-            title="Energia comprada red"
+            title={gridLabel}
             value={formatEnergy(energyFromGrid)}
             color="cyan"
           />
