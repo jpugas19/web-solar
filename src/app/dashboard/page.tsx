@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import StatCard from "@/components/StatCard";
 import CanvasFlow from "@/components/CanvasFlow";
 import TimeSeriesChart from "@/components/TimeSeriesChart";
+import DateFilterBar, { type DateFilter } from "@/components/DateFilterBar";
 
 interface LatestData {
   field_id: string;
@@ -83,6 +84,7 @@ export default function DashboardPage() {
   const [seriesData, setSeriesData] = useState<Record<string, ReadingData[]>>({});
   const [loading, setLoading] = useState(true);
   const [lastUpdate, setLastUpdate] = useState<Date | null>(null);
+  const [dateFilter, setDateFilter] = useState<DateFilter>({ mode: "hours", hours: 6 });
 
   const fetchData = useCallback(async () => {
     try {
@@ -115,7 +117,13 @@ export default function DashboardPage() {
       ];
 
       const seriesPromises = fields.map(async (field) => {
-        const r = await fetch(`/api/readings?field=${field}&hours=6`);
+        let url: string;
+        if (dateFilter.mode === "hours") {
+          url = `/api/readings?field=${field}&hours=${dateFilter.hours}`;
+        } else {
+          url = `/api/readings?field=${field}&from=${dateFilter.from}&to=${dateFilter.to}T23:59:59Z`;
+        }
+        const r = await fetch(url);
         const j = await r.json();
         return [field, j.data || []] as const;
       });
@@ -131,13 +139,13 @@ export default function DashboardPage() {
     } finally {
       setLoading(false);
     }
-  }, [router]);
+  }, [router, dateFilter]);
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 30000);
+    const interval = setInterval(fetchData, dateFilter.mode === "hours" ? 30000 : 60000);
     return () => clearInterval(interval);
-  }, [fetchData]);
+  }, [fetchData, dateFilter.mode]);
 
   async function handleLogout() {
     await fetch("/api/auth/logout", { method: "POST" });
@@ -186,6 +194,12 @@ export default function DashboardPage() {
               </span>
             )}
             <button
+              onClick={() => router.push("/configuracion")}
+              className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700"
+            >
+              ⚙
+            </button>
+            <button
               onClick={handleLogout}
               className="rounded-lg bg-gray-800 px-3 py-1.5 text-xs text-gray-300 hover:bg-gray-700"
             >
@@ -196,6 +210,11 @@ export default function DashboardPage() {
       </nav>
 
       <main className="mx-auto max-w-7xl px-4 py-6">
+        {/* Date Filter */}
+        <div className="mb-6">
+          <DateFilterBar value={dateFilter} onChange={setDateFilter} />
+        </div>
+
         {/* Stats Row */}
         <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard
@@ -266,12 +285,14 @@ export default function DashboardPage() {
             data={seriesData.pv_output_power || []}
             unit="W"
             color="#f59e0b"
+            multiDay={dateFilter.mode !== "hours"}
           />
           <TimeSeriesChart
             title="Battery SOC"
             data={seriesData.bt_battery_capacity || []}
             unit="%"
             color="#22c55e"
+            multiDay={dateFilter.mode !== "hours"}
           />
         </div>
 
@@ -281,6 +302,7 @@ export default function DashboardPage() {
             data={seriesData.load_active_power || []}
             unit="W"
             color="#3b82f6"
+            multiDay={dateFilter.mode !== "hours"}
             extraSeries={[
               { data: seriesData.battery_active_discharging_power || [], color: "#22c55e", name: "Bateria" },
               { data: seriesData.grid_active_sell_power || [], color: "#06b6d4", name: "Red" },
@@ -291,6 +313,7 @@ export default function DashboardPage() {
             data={seriesData.battery_voltage || []}
             unit="V"
             color="#3b82f6"
+            multiDay={dateFilter.mode !== "hours"}
           />
         </div>
 
@@ -300,6 +323,7 @@ export default function DashboardPage() {
             data={seriesData.pv_voltage || []}
             unit="V"
             color="#f59e0b"
+            multiDay={dateFilter.mode !== "hours"}
             extraSeries={[
               { data: seriesData.pv_voltage2 || [], color: "#fb923c", name: "PV2" },
             ]}
@@ -309,6 +333,7 @@ export default function DashboardPage() {
             data={seriesData.ac_temperature || []}
             unit="°C"
             color="#ef4444"
+            multiDay={dateFilter.mode !== "hours"}
             extraSeries={[
               { data: seriesData.dc_temperature || [], color: "#f97316", name: "DC" },
               { data: seriesData.transformer_temperature || [], color: "#a855f7", name: "Transf" },

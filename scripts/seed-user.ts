@@ -59,6 +59,10 @@ async function main() {
     pv_zero_minutes: "15",
     pv_window_start: "9",
     pv_window_end: "19",
+    billing_period_current_start: "2026-07-11",
+    billing_period_current_end: "2026-08-11",
+    billing_period_previous_start: "2026-06-10",
+    billing_period_previous_end: "2026-07-10",
   };
 
   for (const [key, value] of Object.entries(defaults)) {

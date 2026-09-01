@@ -28,10 +28,15 @@ interface TimeSeriesChartProps {
   unit: string;
   color: string;
   extraSeries?: ExtraSeries[];
+  multiDay?: boolean;
 }
 
-function formatTime(ts: string): string {
+function formatTime(ts: string, multiDay?: boolean): string {
   const d = new Date(ts);
+  if (multiDay) {
+    return d.toLocaleDateString("es-CL", { day: "2-digit", month: "2-digit" }) + " " +
+      d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
+  }
   return d.toLocaleTimeString("es-CL", { hour: "2-digit", minute: "2-digit" });
 }
 
@@ -66,6 +71,7 @@ export default function TimeSeriesChart({
   unit,
   color,
   extraSeries = [],
+  multiDay = false,
 }: TimeSeriesChartProps) {
   const chartData = mergeData(data, extraSeries);
 
@@ -83,7 +89,7 @@ export default function TimeSeriesChart({
               <CartesianGrid strokeDasharray="3 3" stroke="#1f2937" />
               <XAxis
                 dataKey="ts"
-                tickFormatter={formatTime}
+                tickFormatter={(ts) => formatTime(ts, multiDay)}
                 stroke="#4b5563"
                 fontSize={10}
                 tickLine={false}
@@ -96,7 +102,7 @@ export default function TimeSeriesChart({
                   borderRadius: "8px",
                   fontSize: "12px",
                 }}
-                labelFormatter={(label) => formatTime(String(label))}
+                labelFormatter={(label) => formatTime(String(label), multiDay)}
                 formatter={(value, name) => [
                   value != null ? `${Number(value).toFixed(1)} ${unit}` : "--",
                   name === "val" ? title : String(name),
