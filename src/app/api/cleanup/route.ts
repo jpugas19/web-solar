@@ -23,22 +23,34 @@ export async function GET() {
       return NextResponse.json({ ok: true, message: "Nothing to clean", deleted: 0 });
     }
 
-    // Downsample via subquery: compute bucket in inner, SELECT DISTINCT ON in outer
+    // Step 1: Create downsampled snapshot of old data
     const cutoffIso = cutoff.toISOString();
-    const bucketExpr = `date_trunc('hour', ts) + (floor(date_part('minute', ts) / ${BUCKET_MINUTES}) * ${BUCKET_MINUTES} || ' minutes')::interval`;
+    const bMin = BUCKET_MINUTES;
 
-    await sql`DROP TABLE IF EXISTS readings_ds`;
-    await sql.unsafe(`CREATE TABLE readings_ds AS
-      SELECT DISTINCT ON (${bucketExpr}, source, field_id)
-        (${bucketExpr}) AS ts, source, field_id, title, unit, val, val_text
-      FROM readings
-      WHERE ts < '${cutoffIso}'
-      ORDER BY ${bucketExpr}, source, field_id, ts`);
+    // Use a two-step approach: select bucketed data into a temp table via raw SQL,
+    // then use tagged template for the rest
+    await sql.unsafe(`DROP TABLE IF EXISTS readings_ds`);
+    await sql.unsafe(
+      `CREATE TABLE readings_ds AS
+       SELECT DISTINCT ON (
+         date_trunc('hour', ts) + (floor(date_part('minute', ts) / ${bMin}) * ${bMin} || ' minutes')::interval,
+         source, field_id
+       )
+         (date_trunc('hour', ts) + (floor(date_part('minute', ts) / ${bMin}) * ${bMin} || ' minutes')::interval) AS ts,
+         source, field_id, title, unit, val, val_text
+       FROM readings
+       WHERE ts < '${cutoffIso}'
+       ORDER BY
+         (date_trunc('hour', ts) + (floor(date_part('minute', ts) / ${bMin}) * ${bMin} || ' minutes')::interval),
+         source, field_id, ts`
+    );
 
     const [dsCount] = await sql`SELECT COUNT(*) as c FROM readings_ds`;
 
+    // Step 2: Delete old rows
     await sql`DELETE FROM readings WHERE ts < ${cutoff}`;
 
+    // Step 3: Insert downsampled rows
     await sql`
       INSERT INTO readings (ts, source, field_id, title, unit, val, val_text)
       SELECT ts, source, field_id, title, unit, val, val_text FROM readings_ds
@@ -46,14 +58,17 @@ export async function GET() {
         title = EXCLUDED.title, unit = EXCLUDED.unit, val = EXCLUDED.val, val_text = EXCLUDED.val_text
     `;
 
-    await sql`DROP TABLE readings_ds`;
+    // Step 4: Drop temp table
+    await sql.unsafe(`DROP TABLE readings_ds`);
 
+    // Step 5: CLUSTER to reclaim disk space
     try {
       await sql`CLUSTER readings USING readings_pkey`;
     } catch (e) {
       console.warn("CLUSTER failed (non-fatal):", e);
     }
 
+    // Step 6: Final stats
     const [stats] = await sql`
       SELECT COUNT(*) as total, pg_size_pretty(pg_total_relation_size('readings')) as size
       FROM readings
