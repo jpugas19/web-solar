@@ -23,24 +23,17 @@ export async function GET() {
       return NextResponse.json({ ok: true, message: "Nothing to clean", deleted: 0 });
     }
 
-    // Build bucket expression as raw SQL string (tagged template can't repeat params in complex expressions)
+    // Downsample via subquery: compute bucket in inner, SELECT DISTINCT ON in outer
+    const cutoffIso = cutoff.toISOString();
     const bucketExpr = `date_trunc('hour', ts) + (floor(date_part('minute', ts) / ${BUCKET_MINUTES}) * ${BUCKET_MINUTES} || ' minutes')::interval`;
 
     await sql`DROP TABLE IF EXISTS readings_ds`;
-    await sql(`CREATE TABLE readings_ds AS
-      WITH bucketed AS (
-        SELECT
-          (${bucketExpr}) AS bucket,
-          source, field_id, title, unit, val, val_text,
-          ROW_NUMBER() OVER (
-            PARTITION BY ${bucketExpr}, source, field_id
-            ORDER BY ts
-          ) AS rn
-        FROM readings
-        WHERE ts < $1
-      )
-      SELECT bucket AS ts, source, field_id, title, unit, val, val_text
-      FROM bucketed WHERE rn = 1`, [cutoff.toISOString()]);
+    await sql.unsafe(`CREATE TABLE readings_ds AS
+      SELECT DISTINCT ON (${bucketExpr}, source, field_id)
+        (${bucketExpr}) AS ts, source, field_id, title, unit, val, val_text
+      FROM readings
+      WHERE ts < '${cutoffIso}'
+      ORDER BY ${bucketExpr}, source, field_id, ts`);
 
     const [dsCount] = await sql`SELECT COUNT(*) as c FROM readings_ds`;
 
@@ -68,7 +61,7 @@ export async function GET() {
 
     return NextResponse.json({
       ok: true,
-      cutoff: cutoff.toISOString(),
+      cutoff: cutoffIso,
       deleted: Number(oldCount.c),
       downsampled: Number(dsCount.c),
       total: Number(stats.total),
