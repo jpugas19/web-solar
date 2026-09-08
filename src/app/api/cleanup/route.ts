@@ -29,17 +29,21 @@ export async function GET() {
     await sql`DROP TABLE IF EXISTS readings_ds`;
     await sql`
       CREATE TABLE readings_ds AS
-      SELECT DISTINCT ON (
-        date_trunc('hour', ts) + (floor(date_part('minute', ts) / ${DOWNSAMPLE_MINUTES}) * ${DOWNSAMPLE_MINUTES} || ' minutes')::interval,
-        source, field_id
-      )
-        (date_trunc('hour', ts) + (floor(date_part('minute', ts) / ${DOWNSAMPLE_MINUTES}) * ${DOWNSAMPLE_MINUTES} || ' minutes')::interval) as ts,
-        source, field_id, title, unit, val, val_text
-      FROM readings
-      WHERE ts < ${cutoff}
-      ORDER BY
-        (date_trunc('hour', ts) + (floor(date_part('minute', ts) / ${DOWNSAMPLE_MINUTES}) * ${DOWNSAMPLE_MINUTES} || ' minutes')::interval),
-        source, field_id, ts
+      SELECT DISTINCT ON (bucket, source, field_id)
+        bucket, source, field_id, title, unit, val, val_text
+      FROM (
+        SELECT
+          (date_trunc('hour', ts) + (floor(date_part('minute', ts) / ${DOWNSAMPLE_MINUTES}) * ${DOWNSAMPLE_MINUTES} || ' minutes')::interval) as bucket,
+          source, field_id, title, unit, val, val_text,
+          ROW_NUMBER() OVER (PARTITION BY
+            date_trunc('hour', ts) + (floor(date_part('minute', ts) / ${DOWNSAMPLE_MINUTES}) * ${DOWNSAMPLE_MINUTES} || ' minutes')::interval,
+            source, field_id
+            ORDER BY ts
+          ) as rn
+        FROM readings
+        WHERE ts < ${cutoff}
+      ) sub
+      WHERE rn = 1
     `;
 
     const [dsCount] = await sql`SELECT COUNT(*) as c FROM readings_ds`;
